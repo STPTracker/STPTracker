@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>EcoSort AI – Smart Waste Classification</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1"></script>
+  <style>
+    :root {
+      --bg: #f0f4f8;
+      --card: #ffffff;
+      --primary: #0d9488;
+      --primary-dark: #0f766e;
+      --dark: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --success: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--dark);
+      line-height: 1.5;
+      padding-bottom: 80px;
+    }
+    .container { max-width: 480px; margin: 0 auto; padding: 12px; }
+    .header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: white;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 20px rgba(15,23,42,0.25);
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+    .header h1 {
+      font-size: 26px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header p { font-size: 14px; opacity: 0.85; margin-top: 4px; }
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }
+    .card-title {
+      font-size: 17px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .preview-box {
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #0f172a;
+      border-radius: 12px;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #94a3b8;
+      font-size: 14px;
+      text-align: center;
+      padding: 16px;
+    }
+    #video, #canvas, #previewImg {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+    .btn-row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    .btn {
+      flex: 1;
+      min-width: 120px;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+    .btn-secondary { background: #e2e8f0; color: #475569; }
+    .btn-secondary:hover:not(:disabled) { background: #cbd5e1; }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-outline {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--muted);
+    }
+    .status { font-size: 13px; color: var(--muted); margin-top: 8px; }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .stat-box {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+    }
+    .stat-box .num { font-size: 24px; font-weight: 700; color: var(--dark); }
+    .stat-box .label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .result-box {
+      margin-top: 14px;
+      padding: 16px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+      border: 1px solid #a7f3d0;
+      display: none;
+    }
+    .result-box.show { display: block; }
+    .result-label { font-size: 13px; color: #065f46; font-weight: 600; }
+    .result-class {
+      font-size: 28px;
+      font-weight: 800;
+      color: #064e3b;
+      margin: 4px 0;
+    }
+    .result-conf { font-size: 14px; color: #047857; }
+    .upload-zone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 28px 16px;
+      text-align: center;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .upload-zone:hover, .upload-zone.dragover { border-color: var(--primary); background: #f0fdfa; }
+    .admin-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--dark);
+      color: white;
+      border: none;
+      border-radius: 50px;
+      padding: 12px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      padding: 16px;
+    }
+    .modal.show { display: flex; }
+    .modal-content {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 360px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal h2 { font-size: 20px; margin-bottom: 16px; }
+    input[type="password"], input[type="number"], select {
+      width: 100%;
+      padding: 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      font-size: 15px;
+      margin-bottom: 12px;
+    }
+    .hidden { display: none !important; }
+    .train-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .train-stat {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 12px;
+      text-align: center;
+    }
+    .train-stat .n { font-size: 22px; font-weight: 700; }
+    .train-stat .l { font-size: 12px; color: var(--muted); }
+    .cat-list { margin: 12px 0; }
+    .cat-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .progress-bar {
+      height: 8px;
+      background: #e2e8f0;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--primary);
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .warning-box {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      color: #92400e;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin: 12px 0;
+    }
+    .info-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e40af;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin: 12px 0;
+    }
+    .how-box {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    #trainLog {
+      font-family: monospace;
+      font-size: 12px;
+      background: #0f172a;
+      color: #a5f3fc;
+      padding: 12px;
+      border-radius: 8px;
+      max-height: 120px;
+      overflow-y: auto;
+      margin-top: 10px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="badge">AI • COMPUTER VISION</div>
+      <h1>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2.5">
+          <path d="M7 19H4.815a1.83 1.83 0 0 1-1.57-.881 1.785 1.785 0 0 1-.004-1.784L7.196 9.5"/>
+          <path d="M11 19h8.203a1.83 1.83 0 0 0 1.556-.89 1.785 1.785 0 0 0 0-1.775l-1.985-3.383"/>
+          <path d="M14 16.5 17.5 9.5"/>
+          <path d="M11.707 5.293a1 1 0 0 0-1.414 0L7.293 8.293a1 1 0 0 0 0 1.414l3 3a1 1 0 0 0 1.414 0l3-3a1 1 0 0 0 0-1.414z"/>
+        </svg>
+        EcoSort AI
+      </h1>
+      <p>Smart waste classification — real on-device AI</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📷 Waste Scanner</div>
+      <div class="preview-box" id="previewBox">
+        <span id="previewPlaceholder">Camera preview will appear here.<br>Allow camera permission to scan.</span>
+        <video id="video" playsinline muted></video>
+        <canvas id="canvas" class="hidden"></canvas>
+        <img id="previewImg" alt="Selected" />
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="startCamBtn">Start Camera</button>
+        <button class="btn btn-secondary" id="scanBtn" disabled>Scan Waste</button>
+      </div>
+      <button class="btn btn-outline" id="stopCamBtn" style="width:100%;margin-top:8px" disabled>Stop Camera</button>
+      <div class="status" id="camStatus">Camera ready.</div>
+      <div class="result-box" id="resultBox">
+        <div class="result-label">Predicted Category</div>
+        <div class="result-class" id="resultClass">—</div>
+        <div class="result-conf" id="resultConf">Confidence: —</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🖼️ Upload Image</div>
+      <div class="upload-zone" id="uploadZone">
+        Choose waste image
+        <input type="file" id="fileInput" accept="image/*" class="hidden" />
+      </div>
+      <button class="btn btn-secondary" id="analyzeBtn" style="width:100%;margin-top:12px" disabled>Analyze Image</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 Session Statistics</div>
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-box"><div class="num" id="statTotal">0</div><div class="label">Total scanned</div></div>
+        <div class="stat-box"><div class="num" id="statPlastic">0</div><div class="label">🥤 Plastic</div></div>
+        <div class="stat-box"><div class="num" id="statPaper">0</div><div class="label">📄 Paper</div></div>
+        <div class="stat-box"><div class="num" id="statOrganic">0</div><div class="label">🍌 Organic</div></div>
+        <div class="stat-box"><div class="num" id="statMetal">0</div><div class="label">🥫 Metal</div></div>
+        <div class="stat-box"><div class="num" id="statGlass">0</div><div class="label">🍾 Glass</div></div>
+        <div class="stat-box"><div class="num" id="statUnknown">0</div><div class="label">❓ Unknown</div></div>
+      </div>
+      <button class="btn btn-outline" id="resetStatsBtn" style="width:100%;margin-top:12px">Reset Statistics</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🧠 How it works</div>
+      <div class="how-box">
+        Capture or upload an image → MobileNet extracts features → a trained classification head predicts the waste type. All processing happens on-device. Dataset & model are saved in your browser and survive page reloads.
+      </div>
+    </div>
+  </div>
+
+  <button class="admin-btn" id="adminBtn">🔒 Admin</button>
+
+  <div class="modal" id="passModal">
+    <div class="modal-content">
+      <h2>Admin Access</h2>
+      <p style="font-size:14px;color:var(--muted);margin-bottom:12px">Enter password to open Training Center</p>
+      <input type="password" id="passInput" placeholder="Password" autocomplete="off" />
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="passCancel">Cancel</button>
+        <button class="btn btn-primary" id="passSubmit">Unlock</button>
+      </div>
+      <div id="passError" style="color:var(--danger);font-size:13px;margin-top:8px;display:none">Wrong password</div>
+    </div>
+  </div>
+
+  <div class="modal" id="trainModal">
+    <div class="modal-content" style="max-width:420px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="margin:0">AI Training Center</h2>
+        <button class="btn btn-outline" id="closeTrain" style="padding:6px 12px;min-width:auto">✕</button>
+      </div>
+
+      <div class="train-stats">
+        <div class="train-stat"><div class="n" id="tImgCount">0</div><div class="l">Training Images</div></div>
+        <div class="train-stat"><div class="n">6</div><div class="l">Categories</div></div>
+        <div class="train-stat"><div class="n" id="tModelStatus">None</div><div class="l">Current Model</div></div>
+        <div class="train-stat"><div class="n" id="tVersions">0</div><div class="l">Model Versions</div></div>
+      </div>
+
+      <div class="btn-row" style="margin-bottom:12px">
+        <button class="btn btn-primary" id="tabAdd">ADD IMAGES</button>
+        <button class="btn btn-secondary" id="tabDataset">DATASET</button>
+      </div>
+      <div class="btn-row" style="margin-bottom:12px">
+        <button class="btn btn-secondary" id="tabTrain">TRAIN MODEL</button>
+        <button class="btn btn-secondary" id="tabHistory">HISTORY</button>
+      </div>
+      <button class="btn btn-outline" id="lockBtn" style="width:100%;margin-bottom:16px">LOCK</button>
+
+      <div id="panelAdd">
+        <div class="info-box">
+          Upload real examples: biscuit packets, milk pouches, newspapers, vegetable peels, aluminium cans, glass jars, phones/shoes (as Unknown). Vary lighting, angles, distances and backgrounds. Data is saved automatically.
+        </div>
+        <div class="upload-zone" id="trainUploadZone" style="margin:12px 0">
+          Drag & drop images here<br>
+          <button class="btn btn-secondary" style="margin-top:10px;min-width:auto" id="chooseTrainImgs">CHOOSE IMAGES</button>
+          <input type="file" id="trainFileInput" accept="image/*" multiple class="hidden" />
+        </div>
+        <label style="font-size:13px;font-weight:600">Category</label>
+        <select id="trainCat">
+          <option value="Plastic">Plastic</option>
+          <option value="Paper">Paper</option>
+          <option value="Organic">Organic</option>
+          <option value="Metal">Metal</option>
+          <option value="Glass">Glass</option>
+          <option value="Unknown">Unknown</option>
+        </select>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="addToDataset">ADD TO DATASET</button>
+          <button class="btn btn-secondary" id="clearPending">Clear</button>
+        </div>
+        <div id="pendingPreview" style="margin-top:10px;font-size:13px;color:var(--muted)"></div>
+      </div>
+
+      <div id="panelDataset" class="hidden">
+        <div class="card-title" style="font-size:15px">📁 Training Dataset</div>
+        <div class="cat-list" id="datasetList"></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" id="refreshDataset">Refresh</button>
+          <button class="btn btn-outline" id="clearCategory">Clear Category</button>
+        </div>
+        <button class="btn btn-danger" id="clearAll" style="width:100%;margin-top:10px">Clear All</button>
+      </div>
+
+      <div id="panelTrain" class="hidden">
+        <div class="info-box">
+          Minimum ~15–20 images per class recommended. Training runs in browser. Model is auto-saved after training.
+        </div>
+        <div class="warning-box" id="balanceWarn" style="display:none">
+          ⚠ DATASET WARNING<br>Dataset is heavily unbalanced. Consider adding more examples for smaller classes.
+        </div>
+        <label style="font-size:13px;font-weight:600">Epochs (10–50)</label>
+        <input type="number" id="epochsInput" value="25" min="10" max="50" />
+        <button class="btn btn-primary" id="startTrain" style="width:100%">TRAIN AI MODEL</button>
+        <div class="progress-bar" id="trainProgress" style="display:none"><div class="progress-fill" id="trainFill"></div></div>
+        <div id="trainLog"></div>
+      </div>
+
+      <div id="panelHistory" class="hidden">
+        <div id="historyList" style="font-size:13px;color:var(--muted)">No training history yet.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const ADMIN_PASS = 'SHG2627';
+    const CLASSES = ['Plastic', 'Paper', 'Organic', 'Metal', 'Glass', 'Unknown'];
+    const CLASS_EMOJI = { Plastic:'🥤', Paper:'📄', Organic:'🍌', Metal:'🥫', Glass:'🍾', Unknown:'❓' };
+    const DB_NAME = 'EcoSortDB';
+    const DB_VERSION = 1;
+    const MODEL_KEY = 'indexeddb://eco-sort-classifier';
+
+    let mobilenetModel = null;
+    let classifier = null;
+    let dataset = {};
+    let pendingFiles = [];
+    let stream = null;
+    let modelVersion = 0;
+    let history = [];
+    let stats = { total:0, Plastic:0, Paper:0, Organic:0, Metal:0, Glass:0, Unknown:0 };
+    let isAdmin = false;
+    let db = null;
+
+    CLASSES.forEach(c => dataset[c] = []);
+
+    const $ = id => document.getElementById(id);
+    const video = $('video');
+    const canvas = $('canvas');
+    const previewImg = $('previewImg');
+    const previewPlaceholder = $('previewPlaceholder');
+
+    // ========== INDEXEDDB ==========
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = e => {
+          const d = e.target.result;
+          if (!d.objectStoreNames.contains('images')) {
+            d.createObjectStore('images', { keyPath: 'id', autoIncrement: true });
+          }
+          if (!d.objectStoreNames.contains('meta')) {
+            d.createObjectStore('meta', { keyPath: 'key' });
+          }
+        };
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror = e => reject(e.target.error);
+      });
+    }
+
+    async function saveImageToDB(cat, img) {
+      const blob = await imgToBlob(img);
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('images', 'readwrite');
+        const store = tx.objectStore('images');
+        const req = store.add({ category: cat, blob, ts: Date.now() });
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    function imgToBlob(img) {
+      return new Promise(resolve => {
+        const c = document.createElement('canvas');
+        // resize large images to save space & speed
+        const max = 320;
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        if (w > max || h > max) {
+          const r = Math.min(max / w, max / h);
+          w = Math.round(w * r);
+          h = Math.round(h * r);
+        }
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        c.toBlob(b => resolve(b), 'image/jpeg', 0.85);
+      });
+    }
+
+    async function loadDatasetFromDB() {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('images', 'readonly');
+        const store = tx.objectStore('images');
+        const req = store.getAll();
+        req.onsuccess = async () => {
+          const rows = req.result || [];
+          CLASSES.forEach(c => dataset[c] = []);
+          for (const row of rows) {
+            if (!CLASSES.includes(row.category)) continue;
+            try {
+              const img = await blobToImg(row.blob);
+              img._dbId = row.id;
+              dataset[row.category].push(img);
+            } catch (_) {}
+          }
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    function blobToImg(blob) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = URL.createObjectURL(blob);
+      });
+    }
+
+    async function clearCategoryDB(cat) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('images', 'readwrite');
+        const store = tx.objectStore('images');
+        const req = store.openCursor();
+        req.onsuccess = e => {
+          const cursor = e.target.result;
+          if (cursor) {
+            if (cursor.value.category === cat) cursor.delete();
+            cursor.continue();
+          } else resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function clearAllDB() {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('images', 'readwrite');
+        const store = tx.objectStore('images');
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function saveMeta() {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('meta', 'readwrite');
+        const store = tx.objectStore('meta');
+        store.put({ key: 'modelVersion', value: modelVersion });
+        store.put({ key: 'history', value: history });
+        store.put({ key: 'stats', value: stats });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function loadMeta() {
+      return new Promise((resolve) => {
+        const tx = db.transaction('meta', 'readonly');
+        const store = tx.objectStore('meta');
+        const get = (k) => new Promise(r => {
+          const req = store.get(k);
+          req.onsuccess = () => r(req.result ? req.result.value : null);
+          req.onerror = () => r(null);
+        });
+        Promise.all([get('modelVersion'), get('history'), get('stats')]).then(([v, h, s]) => {
+          if (v != null) modelVersion = v;
+          if (Array.isArray(h)) history = h;
+          if (s && typeof s === 'object') stats = s;
+          resolve();
+        });
+      });
+    }
+
+    async function saveModel() {
+      if (!classifier) return;
+      try {
+        await classifier.save(MODEL_KEY);
+      } catch (e) {
+        console.error('Model save failed', e);
+      }
+    }
+
+    async function loadModel() {
+      try {
+        classifier = await tf.loadLayersModel(MODEL_KEY);
+        return true;
+      } catch (_) {
+        classifier = null;
+        return false;
+      }
+    }
+
+    // ========== INIT ==========
+    async function init() {
+      $('camStatus').textContent = 'Loading AI + saved data...';
+      try {
+        db = await openDB();
+        await loadMeta();
+        await loadDatasetFromDB();
+        updateTrainStats();
+        updateStatsUI();
+
+        mobilenetModel = await mobilenet.load({ version: 2, alpha: 0.5 });
+        const hasModel = await loadModel();
+        if (hasModel) {
+          $('camStatus').textContent = `AI ready (model v${modelVersion}). Start camera or upload.`;
+        } else {
+          $('camStatus').textContent = 'AI ready. Train a model in Admin first.';
+        }
+      } catch (e) {
+        console.error(e);
+        $('camStatus').textContent = 'Load failed. Check internet / storage.';
+        try {
+          mobilenetModel = await mobilenet.load({ version: 2, alpha: 0.5 });
+          $('camStatus').textContent = 'AI ready (no saved data).';
+        } catch (_) {}
+      }
+    }
+    init();
+
+    // ========== CAMERA ==========
+    $('startCamBtn').onclick = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false
+        });
+        video.srcObject = stream;
+        video.style.display = 'block';
+        previewImg.style.display = 'none';
+        previewPlaceholder.style.display = 'none';
+        await video.play();
+        $('startCamBtn').disabled = true;
+        $('stopCamBtn').disabled = false;
+        $('scanBtn').disabled = false;
+        $('camStatus').textContent = 'Camera active. Point at waste and tap Scan.';
+      } catch (e) {
+        $('camStatus').textContent = 'Camera permission denied or unavailable.';
+      }
+    };
+
+    $('stopCamBtn').onclick = () => {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      video.srcObject = null;
+      video.style.display = 'none';
+      previewPlaceholder.style.display = 'block';
+      $('startCamBtn').disabled = false;
+      $('stopCamBtn').disabled = true;
+      $('scanBtn').disabled = true;
+      $('camStatus').textContent = 'Camera stopped.';
+    };
+
+    $('scanBtn').onclick = async () => {
+      if (!mobilenetModel) return alert('AI still loading...');
+      if (!classifier) return alert('No trained model yet. Open Admin → Train Model first.');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const img = await createImageBitmap(canvas);
+      await predict(img);
+    };
+
+    // ========== UPLOAD ==========
+    $('uploadZone').onclick = () => $('fileInput').click();
+    $('fileInput').onchange = e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      previewImg.src = url;
+      previewImg.style.display = 'block';
+      video.style.display = 'none';
+      previewPlaceholder.style.display = 'none';
+      $('analyzeBtn').disabled = false;
+      $('camStatus').textContent = 'Image loaded. Tap Analyze.';
+    };
+
+    $('analyzeBtn').onclick = async () => {
+      if (!mobilenetModel) return alert('AI still loading...');
+      if (!classifier) return alert('No trained model yet. Open Admin → Train Model first.');
+      await predict(previewImg);
+    };
+
+    // ========== PREDICT ==========
+    async function predict(imgElement) {
+      $('camStatus').textContent = 'Classifying...';
+      let emb = mobilenetModel.infer(imgElement, true);
+      if (emb.shape.length === 2 && emb.shape[0] === 1) emb = emb.squeeze();
+      const embBatch = emb.expandDims(0);
+      const logits = classifier.predict(embBatch);
+      const probs = await logits.data();
+      emb.dispose();
+      embBatch.dispose();
+      logits.dispose();
+
+      let maxIdx = 0;
+      for (let i = 1; i < probs.length; i++) if (probs[i] > probs[maxIdx]) maxIdx = i;
+      const label = CLASSES[maxIdx];
+      const conf = (probs[maxIdx] * 100).toFixed(1);
+
+      $('resultClass').textContent = `${CLASS_EMOJI[label]} ${label}`;
+      $('resultConf').textContent = `Confidence: ${conf}%`;
+      $('resultBox').classList.add('show');
+      $('camStatus').textContent = `Result: ${label} (${conf}%)`;
+
+      stats.total++;
+      stats[label]++;
+      updateStatsUI();
+      saveMeta();
+    }
+
+    function updateStatsUI() {
+      $('statTotal').textContent = stats.total;
+      CLASSES.forEach(c => {
+        const el = $(`stat${c}`);
+        if (el) el.textContent = stats[c];
+      });
+    }
+    $('resetStatsBtn').onclick = () => {
+      stats = { total:0, Plastic:0, Paper:0, Organic:0, Metal:0, Glass:0, Unknown:0 };
+      updateStatsUI();
+      $('resultBox').classList.remove('show');
+      saveMeta();
+    };
+
+    // ========== ADMIN ==========
+    $('adminBtn').onclick = () => {
+      if (isAdmin) {
+        $('trainModal').classList.add('show');
+        return;
+      }
+      $('passModal').classList.add('show');
+      $('passInput').value = '';
+      $('passError').style.display = 'none';
+      $('passInput').focus();
+    };
+    $('passCancel').onclick = () => $('passModal').classList.remove('show');
+    $('passSubmit').onclick = () => {
+      if ($('passInput').value === ADMIN_PASS) {
+        isAdmin = true;
+        $('passModal').classList.remove('show');
+        $('trainModal').classList.add('show');
+        updateTrainStats();
+        renderDataset();
+      } else {
+        $('passError').style.display = 'block';
+      }
+    };
+    $('passInput').onkeydown = e => { if (e.key === 'Enter') $('passSubmit').click(); };
+
+    $('closeTrain').onclick = () => $('trainModal').classList.remove('show');
+    $('lockBtn').onclick = () => {
+      isAdmin = false;
+      $('trainModal').classList.remove('show');
+    };
+
+    function showPanel(name) {
+      ['Add','Dataset','Train','History'].forEach(p => {
+        $(`panel${p}`).classList.toggle('hidden', p !== name);
+        const btn = $(`tab${p}`);
+        if (btn) btn.className = p === name ? 'btn btn-primary' : 'btn btn-secondary';
+      });
+    }
+    $('tabAdd').onclick = () => showPanel('Add');
+    $('tabDataset').onclick = () => { showPanel('Dataset'); renderDataset(); };
+    $('tabTrain').onclick = () => { showPanel('Train'); checkBalance(); };
+    $('tabHistory').onclick = () => { showPanel('History'); renderHistory(); };
+
+    // ========== ADD IMAGES ==========
+    $('chooseTrainImgs').onclick = e => { e.stopPropagation(); $('trainFileInput').click(); };
+    $('trainUploadZone').onclick = () => $('trainFileInput').click();
+    $('trainFileInput').onchange = e => {
+      pendingFiles = Array.from(e.target.files);
+      $('pendingPreview').textContent = pendingFiles.length
+        ? `${pendingFiles.length} image(s) selected for category: ${$('trainCat').value}`
+        : '';
+    };
+
+    const zone = $('trainUploadZone');
+    zone.ondragover = e => { e.preventDefault(); zone.classList.add('dragover'); };
+    zone.ondragleave = () => zone.classList.remove('dragover');
+    zone.ondrop = e => {
+      e.preventDefault();
+      zone.classList.remove('dragover');
+      pendingFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+      $('pendingPreview').textContent = pendingFiles.length ? `${pendingFiles.length} image(s) ready` : '';
+    };
+
+    $('clearPending').onclick = () => {
+      pendingFiles = [];
+      $('trainFileInput').value = '';
+      $('pendingPreview').textContent = '';
+    };
+
+    $('addToDataset').onclick = async () => {
+      if (!pendingFiles.length) return alert('Select images first');
+      const cat = $('trainCat').value;
+      $('pendingPreview').textContent = 'Saving...';
+      for (const file of pendingFiles) {
+        const img = await loadImage(file);
+        dataset[cat].push(img);
+        await saveImageToDB(cat, img);
+      }
+      pendingFiles = [];
+      $('trainFileInput').value = '';
+      $('pendingPreview').textContent = `Added to ${cat}. Total ${cat}: ${dataset[cat].length}`;
+      updateTrainStats();
+    };
+
+    function loadImage(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    // ========== DATASET ==========
+    function updateTrainStats() {
+      let total = 0;
+      CLASSES.forEach(c => total += dataset[c].length);
+      $('tImgCount').textContent = total;
+      $('tModelStatus').textContent = classifier ? `v${modelVersion}` : 'None';
+      $('tVersions').textContent = modelVersion;
+    }
+
+    function renderDataset() {
+      const list = $('datasetList');
+      let html = '';
+      let total = 0;
+      CLASSES.forEach(c => {
+        const n = dataset[c].length;
+        total += n;
+        html += `<div class="cat-item">
+          <span>${CLASS_EMOJI[c]} ${c}</span>
+          <span><strong>${n}</strong> images</span>
+        </div>`;
+      });
+      html += `<div class="cat-item" style="font-weight:700;border:none">
+        <span>TOTAL</span><span>${total}</span>
+      </div>`;
+      list.innerHTML = html;
+    }
+
+    $('refreshDataset').onclick = renderDataset;
+    $('clearCategory').onclick = async () => {
+      const cat = prompt('Enter category name to clear (Plastic / Paper / Organic / Metal / Glass / Unknown):');
+      if (cat && dataset[cat]) {
+        dataset[cat] = [];
+        await clearCategoryDB(cat);
+        updateTrainStats();
+        renderDataset();
+      }
+    };
+    $('clearAll').onclick = async () => {
+      if (confirm('Delete ALL training images?')) {
+        CLASSES.forEach(c => dataset[c] = []);
+        await clearAllDB();
+        updateTrainStats();
+        renderDataset();
+      }
+    };
+
+    // ========== TRAIN (improved accuracy) ==========
+    function checkBalance() {
+      const counts = CLASSES.map(c => dataset[c].length);
+      const max = Math.max(...counts);
+      const min = Math.min(...counts.filter(n => n > 0), 0);
+      const warn = max > 0 && (min < 10 || max / (min || 1) > 3);
+      $('balanceWarn').style.display = warn ? 'block' : 'none';
+    }
+
+    // Simple augmentation: flip / slight crop via canvas
+    function augmentImg(img) {
+      const c = document.createElement('canvas');
+      const max = 224;
+      let w = img.naturalWidth || img.width;
+      let h = img.naturalHeight || img.height;
+      const r = Math.min(max / w, max / h);
+      w = Math.round(w * r); h = Math.round(h * r);
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      // random horizontal flip
+      if (Math.random() > 0.5) {
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+      }
+      // slight brightness jitter
+      ctx.filter = `brightness(${0.85 + Math.random() * 0.3})`;
+      ctx.drawImage(img, 0, 0, w, h);
+      return c;
+    }
+
+    $('startTrain').onclick = async () => {
+      const total = CLASSES.reduce((s, c) => s + dataset[c].length, 0);
+      if (total < 30) return alert('Need at least ~30 images total (ideally 15+ per class).');
+      if (!mobilenetModel) return alert('MobileNet still loading...');
+
+      const epochs = Math.min(50, Math.max(10, parseInt($('epochsInput').value) || 25));
+      const btn = $('startTrain');
+      btn.disabled = true;
+      btn.textContent = 'TRAINING...';
+      $('trainProgress').style.display = 'block';
+      $('trainFill').style.width = '0%';
+      const log = $('trainLog');
+      log.style.display = 'block';
+      log.innerHTML = 'Extracting embeddings (+aug)...\n';
+
+      try {
+        const xs = [];
+        const ys = [];
+        let done = 0;
+        // 2x data with augmentation
+        for (let pass = 0; pass < 2; pass++) {
+          for (let ci = 0; ci < CLASSES.length; ci++) {
+            const imgs = dataset[CLASSES[ci]];
+            for (const img of imgs) {
+              const src = pass === 0 ? img : augmentImg(img);
+              let emb = mobilenetModel.infer(src, true);
+              if (emb.shape.length === 2 && emb.shape[0] === 1) emb = emb.squeeze();
+              xs.push(emb);
+              const oneHot = new Array(CLASSES.length).fill(0);
+              oneHot[ci] = 1;
+              ys.push(oneHot);
+              done++;
+              if (done % 15 === 0) {
+                log.innerHTML += `Embeddings ${done}/${total * 2}\n`;
+                log.scrollTop = log.scrollHeight;
+              }
+            }
+          }
+        }
+
+        const xTensor = tf.stack(xs);
+        const yTensor = tf.tensor2d(ys);
+        xs.forEach(t => t.dispose());
+
+        if (classifier) classifier.dispose();
+        const featureDim = xTensor.shape[1];
+        // Slightly deeper / regularized head for better accuracy
+        classifier = tf.sequential({
+          layers: [
+            tf.layers.dense({ inputShape: [featureDim], units: 256, activation: 'relu', kernelRegularizer: tf.regularizers.l2({l2: 0.001}) }),
+            tf.layers.batchNormalization(),
+            tf.layers.dropout({ rate: 0.4 }),
+            tf.layers.dense({ units: 128, activation: 'relu', kernelRegularizer: tf.regularizers.l2({l2: 0.001}) }),
+            tf.layers.dropout({ rate: 0.3 }),
+            tf.layers.dense({ units: 64, activation: 'relu' }),
+            tf.layers.dropout({ rate: 0.2 }),
+            tf.layers.dense({ units: CLASSES.length, activation: 'softmax' })
+          ]
+        });
+        classifier.compile({
+          optimizer: tf.train.adam(0.0008),
+          loss: 'categoricalCrossentropy',
+          metrics: ['accuracy']
+        });
+
+        log.innerHTML += `Training ${epochs} epochs...\n`;
+
+        await classifier.fit(xTensor, yTensor, {
+          epochs,
+          batchSize: 16,
+          shuffle: true,
+          validationSplit: 0.15,
+          callbacks: {
+            onEpochEnd: (epoch, logs) => {
+              const pct = ((epoch + 1) / epochs * 100).toFixed(0);
+              $('trainFill').style.width = pct + '%';
+              const valAcc = logs.val_acc != null ? `  valAcc: ${(logs.val_acc*100).toFixed(1)}%` : '';
+              log.innerHTML += `Epoch ${epoch+1}/${epochs} — loss: ${logs.loss.toFixed(4)}  acc: ${(logs.acc*100).toFixed(1)}%${valAcc}\n`;
+              log.scrollTop = log.scrollHeight;
+            }
+          }
+        });
+
+        xTensor.dispose();
+        yTensor.dispose();
+
+        modelVersion++;
+        history.unshift({
+          version: modelVersion,
+          date: new Date().toLocaleString(),
+          images: total,
+          epochs,
+          classes: CLASSES.map(c => `${c}:${dataset[c].length}`).join(', ')
+        });
+        if (history.length > 20) history = history.slice(0, 20);
+
+        await saveModel();
+        await saveMeta();
+        updateTrainStats();
+        log.innerHTML += `\n✅ Training complete! Model v${modelVersion} saved.\n`;
+        alert(`Model trained & saved (v${modelVersion})!\nYou can now scan waste. Data survives reloads.`);
+      } catch (err) {
+        console.error(err);
+        log.innerHTML += `\n❌ Error: ${err.message}\n`;
+        alert('Training failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'TRAIN AI MODEL';
+      }
+    };
+
+    function renderHistory() {
+      const el = $('historyList');
+      if (!history.length) {
+        el.innerHTML = 'No training history yet.';
+        return;
+      }
+      el.innerHTML = history.map(h => `
+        <div style="padding:10px 0;border-bottom:1px solid #e2e8f0">
+          <strong>v${h.version}</strong> — ${h.date}<br>
+          <span style="color:#64748b">${h.images} images • ${h.epochs} epochs</span><br>
+          <span style="font-size:12px">${h.classes}</span>
+        </div>
+      `).join('');
+    }
+
+    window.addEventListener('beforeunload', e => {
+      if ($('startTrain').disabled) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+  </script>
+</body>
+</html>
